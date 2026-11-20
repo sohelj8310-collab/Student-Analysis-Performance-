@@ -1,0 +1,447 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+
+# -----------------------------------------
+# 1. PAGE CONFIGURATION
+# -----------------------------------------
+
+st.set_page_config(
+    page_title="Student Academic Performance",
+    page_icon="🎓",
+    layout="wide"
+)
+
+# -----------------------------------------
+# 2. CUSTOM DESIGN
+# -----------------------------------------
+
+st.markdown("""
+<style>
+.stApp {
+    background-color: #F3F6FA;
+}
+h1, h2, h3 {
+    color: #17365D;
+}
+[data-testid="stMetric"] {
+    background-color: white;
+    padding: 18px;
+    border-radius: 12px;
+    border: 1px solid #DCE3ED;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# -----------------------------------------
+# 3. TITLE
+# -----------------------------------------
+
+st.title("🎓 Student Academic Performance Analysis")
+st.subheader("Interactive Dashboard using Python")
+
+st.write(
+    "This project analyzes student marks, calculates "
+    "academic performance and presents results through "
+    "interactive visualizations."
+)
+
+# -----------------------------------------
+# 4. SAMPLE DATA GENERATION
+# -----------------------------------------
+
+@st.cache_data
+def generate_data():
+
+    np.random.seed(42)
+
+    students = []
+
+    for i in range(1, 101):
+
+        name = f"Student {i}"
+
+        students.append({
+            "USN": f"4XX24CS{i:03d}",
+            "Name": name,
+            "Gender": np.random.choice(
+                ["Male", "Female"]
+            ),
+            "Attendance": np.random.randint(55, 101),
+            "Mathematics": np.random.randint(20, 101),
+            "Python": np.random.randint(20, 101),
+            "DBMS": np.random.randint(20, 101),
+            "Operating Systems": np.random.randint(20, 101),
+            "Computer Networks": np.random.randint(20, 101)
+        })
+
+    return pd.DataFrame(students)
+
+
+# -----------------------------------------
+# 5. DATA UPLOAD
+# -----------------------------------------
+
+st.sidebar.title("⚙️ Dashboard Settings")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Student CSV File",
+    type=["csv"]
+)
+
+if uploaded_file is not None:
+
+    df = pd.read_csv(uploaded_file)
+
+else:
+
+    df = generate_data()
+
+subjects = [
+    "Mathematics",
+    "Python",
+    "DBMS",
+    "Operating Systems",
+    "Computer Networks"
+]
+
+required_columns = [
+    "USN", "Name", "Gender", "Attendance"
+] + subjects
+
+if not all(col in df.columns for col in required_columns):
+    st.error("CSV is missing required columns. Please check the format.")
+    st.stop()
+
+if df.empty:
+    st.error("No student records found.")
+    st.stop()
+
+# -----------------------------------------
+# 6. DATA VALIDATION
+# -----------------------------------------
+
+try:
+    for col in subjects + ["Attendance"]:
+        df[col] = pd.to_numeric(df[col], errors="raise")
+
+    if not df[subjects + ["Attendance"]].apply(
+        lambda col: col.between(0, 100).all()
+    ).all():
+        st.error("Marks and attendance must be between 0 and 100.")
+        st.stop()
+
+except (ValueError, TypeError):
+    st.error("Marks and attendance must contain valid numbers.")
+    st.stop()
+
+# -----------------------------------------
+# 7. PERFORMANCE CALCULATION
+# -----------------------------------------
+
+df["Total Marks"] = df[subjects].sum(axis=1)
+
+df["Percentage"] = (
+    df["Total Marks"] / len(subjects)
+)
+
+def calculate_grade(percentage):
+
+    if percentage >= 90:
+        return "A+"
+    elif percentage >= 80:
+        return "A"
+    elif percentage >= 70:
+        return "B"
+    elif percentage >= 60:
+        return "C"
+    elif percentage >= 50:
+        return "D"
+    else:
+        return "F"
+
+
+df["Grade"] = df["Percentage"].apply(
+    calculate_grade
+)
+
+df["Result"] = np.where(
+    df[subjects].ge(35).all(axis=1),
+    "Pass",
+    "Fail"
+)
+
+# -----------------------------------------
+# 8. SIDEBAR FILTERS
+# -----------------------------------------
+
+st.sidebar.header("Student Filters")
+
+gender_options = ["All"] + sorted(
+    df["Gender"].dropna().unique().tolist()
+)
+
+selected_gender = st.sidebar.selectbox(
+    "Select Gender",
+    gender_options
+)
+
+min_percentage = st.sidebar.slider(
+    "Minimum Percentage",
+    0, 100, 0
+)
+
+filtered_df = df.copy()
+
+if selected_gender != "All":
+    filtered_df = filtered_df[
+        filtered_df["Gender"] == selected_gender
+    ]
+
+filtered_df = filtered_df[
+    filtered_df["Percentage"] >= min_percentage
+]
+
+# -----------------------------------------
+# 9. DASHBOARD METRICS
+# -----------------------------------------
+
+st.markdown("## 📊 Overall Academic Overview")
+
+total_students = len(filtered_df)
+
+average_percentage = filtered_df["Percentage"].mean()
+
+pass_students = (
+    filtered_df["Result"] == "Pass"
+).sum()
+
+fail_students = (
+    filtered_df["Result"] == "Fail"
+).sum()
+
+pass_percentage = (
+    pass_students / total_students * 100
+    if total_students else 0
+)
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Total Students", total_students)
+
+col2.metric(
+    "Average Percentage",
+    f"{average_percentage:.2f}%" if total_students else "N/A"
+)
+
+col3.metric("Pass Students", int(pass_students))
+
+col4.metric("Fail Students", int(fail_students))
+
+st.progress(pass_percentage / 100)
+
+st.caption(f"Pass Rate: {pass_percentage:.2f}%")
+
+# -----------------------------------------
+# 10. STUDENT DATA TABLE
+# -----------------------------------------
+
+st.markdown("## 📋 Student Performance Records")
+
+st.dataframe(
+    filtered_df,
+    use_container_width=True,
+    hide_index=True
+)
+
+# -----------------------------------------
+# 11. TOP PERFORMING STUDENTS
+# -----------------------------------------
+
+st.markdown("## 🏆 Top Performing Students")
+
+top_students = filtered_df.sort_values(
+    "Percentage",
+    ascending=False
+).head(10)
+
+st.dataframe(
+    top_students[
+        ["USN", "Name", "Percentage", "Grade", "Result"]
+    ],
+    use_container_width=True,
+    hide_index=True
+)
+
+# -----------------------------------------
+# 12. SUBJECT-WISE ANALYSIS
+# -----------------------------------------
+
+st.markdown("## 📚 Subject-wise Average Marks")
+
+subject_average = filtered_df[subjects].mean()
+
+subject_data = pd.DataFrame({
+    "Subject": subject_average.index,
+    "Average Marks": subject_average.values
+})
+
+fig1 = px.bar(
+    subject_data,
+    x="Subject",
+    y="Average Marks",
+    color="Average Marks",
+    text_auto=".2f",
+    title="Average Marks in Each Subject",
+    color_continuous_scale="Blues"
+)
+
+st.plotly_chart(fig1, use_container_width=True)
+
+# -----------------------------------------
+# 13. GRADE DISTRIBUTION
+# -----------------------------------------
+
+st.markdown("## 📈 Grade Distribution")
+
+grade_data = filtered_df["Grade"].value_counts().reset_index()
+
+grade_data.columns = ["Grade", "Students"]
+
+fig2 = px.pie(
+    grade_data,
+    names="Grade",
+    values="Students",
+    hole=0.4,
+    title="Student Grade Distribution"
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
+# -----------------------------------------
+# 14. PASS AND FAIL ANALYSIS
+# -----------------------------------------
+
+st.markdown("## 📊 Pass / Fail Analysis")
+
+result_data = filtered_df["Result"].value_counts().reset_index()
+
+result_data.columns = ["Result", "Students"]
+
+fig3 = px.bar(
+    result_data,
+    x="Result",
+    y="Students",
+    color="Result",
+    text="Students",
+    title="Pass and Fail Student Comparison"
+)
+
+st.plotly_chart(fig3, use_container_width=True)
+
+# -----------------------------------------
+# 15. ATTENDANCE ANALYSIS
+# -----------------------------------------
+
+st.markdown("## 🕒 Attendance Analysis")
+
+fig4 = px.scatter(
+    filtered_df,
+    x="Attendance",
+    y="Percentage",
+    color="Result",
+    hover_data=["Name", "USN"],
+    title="Attendance vs Academic Performance"
+)
+
+st.plotly_chart(fig4, use_container_width=True)
+
+# -----------------------------------------
+# 16. INDIVIDUAL STUDENT ANALYSIS
+# -----------------------------------------
+
+st.markdown("## 🔍 Individual Student Analysis")
+
+student_names = filtered_df["Name"].dropna().tolist()
+
+if student_names:
+
+    selected_student = st.selectbox(
+        "Select Student",
+        student_names
+    )
+
+    student = filtered_df[
+        filtered_df["Name"] == selected_student
+    ].iloc[0]
+
+    st.write(f"### {student['Name']}")
+
+    a, b, c = st.columns(3)
+
+    a.metric("Percentage", f"{student['Percentage']:.2f}%")
+    b.metric("Grade", student["Grade"])
+    c.metric("Result", student["Result"])
+
+    student_subjects = pd.DataFrame({
+        "Subject": subjects,
+        "Marks": [student[s] for s in subjects]
+    })
+
+    fig5 = px.bar(
+        student_subjects,
+        x="Subject",
+        y="Marks",
+        color="Marks",
+        text="Marks",
+        title="Individual Subject Performance"
+    )
+
+    st.plotly_chart(fig5, use_container_width=True)
+
+else:
+    st.info("No students match the selected filters.")
+
+# -----------------------------------------
+# 17. DOWNLOAD REPORT
+# -----------------------------------------
+
+st.markdown("## 📥 Download Student Report")
+
+csv_data = filtered_df.to_csv(
+    index=False
+).encode("utf-8")
+
+st.download_button(
+    label="Download Academic Report CSV",
+    data=csv_data,
+    file_name="Student_Academic_Report.csv",
+    mime="text/csv"
+)
+
+# -----------------------------------------
+# 18. PROJECT CONCLUSION
+# -----------------------------------------
+
+st.markdown("---")
+
+st.markdown("## 🎯 Project Conclusion")
+
+st.write("""
+The Student Academic Performance Analysis and Interactive
+Dashboard successfully analyzes student academic records.
+
+It helps identify top performers, understand subject-wise
+results, compare attendance with marks and monitor pass
+and fail statistics.
+
+The dashboard provides an easy and interactive way to
+understand student performance using Python.
+""")
+
+st.success("Student Academic Performance Dashboard is Ready!")
+
+st.caption(
+    "Developed using Python | Pandas | NumPy | Streamlit | Plotly"
+)
